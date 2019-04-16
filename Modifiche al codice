@@ -1,3 +1,12 @@
+COSE GROSSE DA CAMBIARE:
+-   Al momento si crea e si distrugge l'attributo 'loglikelihood_unit' della classe Particle. Questo è brutto,
+    sostituire con cambiamenti di valore tra None e non None, magari iniziandolo None
+-   I metodi di evoluzione fanno deepcopy su self: bruttissimo, riscrivere i singoli attributi
+
+
+
+MODIFICHE EFFETTUATE:
+
 * Riga 87:
     sostituito
         [self.dipoles[dip].loc for dip in range(self.n_dips)]
@@ -16,3 +25,26 @@
          math.log(det_sigma)
     con
          np.log(det_sigma)
+
+* Riga 164:
+    sostituito
+        math.factorial
+    con
+        np.math.factorial
+
+* Righe 169- 232:
+    - rimosse kwargs e introdotto sigma_q
+    - rimosse parti di codice valide per smc
+    - introdotti q_birth e q_death come parametri (instanziati) del metodo
+    - rimosso i_data tra gli input
+
+* Righe 235 - 308:
+    - rimosse kwargs e introdotto sigma_q
+    - rimosse parti di codice valide per smc
+    - rimosso i_data tra gli input
+
+* Riga 347:
+    sostituito
+        self.samples
+    con
+        self.particles
