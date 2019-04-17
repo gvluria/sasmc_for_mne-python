@@ -6,9 +6,51 @@
 # License: BSD (3-clause)
 
 import numpy as np
+import scipy.spatial.distance as ssd
 import copy
+import time
 import itertools
 import mne
+
+
+def estimate_noise_std(evoked, tmin=None, tmax=None, picks=None):
+    '''Estimate the standard deviation of the noise distribution from a
+    portion of the data which is assumed to be generated from noise only.
+
+    Parameters
+    ----------
+    evoked: instance of Evoked
+        The evoked data
+    time_in : float | None (default None)
+        First instant (in ms) of the portion of the data used.
+        If None it is set equal to the first instant of data.
+    time_fin : float | None (default None)
+        Last istant (in ms) of the portion of the data used.
+        If None it is set equal to the last instant of data.
+    picks: array-like of int | None (default None)
+        The indices of channels used for the estimation. If None
+        all channels are used.
+
+    Returns
+    -------
+    s_noise : float
+        Estimated standard deviation
+    '''
+
+    # TODO: gestire meglio i picks (consentire una scrittura tipo picks = 'grad')
+
+    if isinstance(evoked, mne.evoked.Evoked):
+        _data = evoked.data
+    else:
+        _data = evoked
+
+    if picks is None:
+        prestimulus = _data[:, tmin:tmax + 1]
+    else:
+        prestimulus = _data[picks, tmin:tmax + 1]
+
+    s_noise = np.mean(np.std(prestimulus, axis=1))
+    return s_noise
 
 
 class Dipole(object):
@@ -63,8 +105,8 @@ class Particle(object):
         self.prior = None
         self.loglikelihood_unit = None
 
-        # self.add_dipole(n_verts, np.random.poisson(lam))
-        # self.compute_prior(lam)
+        self.add_dipole(n_verts, np.random.poisson(lam))
+        self.compute_prior(lam)
 
     def __repr__(self):
         s = 'n_dips : {0}'.format(self.n_dips)
@@ -102,8 +144,11 @@ class Particle(object):
             The index representing the dipoles array entry to be removed.
         """
 
-        self.dipoles = np.delete(self.dipoles, diprip)
-        self.n_dips -= 1
+        if self.dipoles.shape[0] > 0:
+            self.dipoles = np.delete(self.dipoles, diprip)
+            self.n_dips -= 1
+        else:
+            raise ValueError('No dipoles to remove.')
 
     def compute_loglikelihood_unit(self, r_data, lead_field, s_noise, s_q):
         """ Evaluates the logarithm of the likelihood function in the present particle.
@@ -402,7 +447,7 @@ class EmpPdf(object):
         for _part in self.particles:
             _part = _part.evol_n_dips(n_verts, r_data, lead_field, N_dip_max, self.exponents[-1], s_noise, sigma_q, lam)
             for dip_idx in reversed(range(_part.n_dips)):
-                _part = _part.evol_loc(dip_idx, neigh, neigh_p, r_data, i_data, lead_field, self.exponents[-1], s_noise,
+                _part = _part.evol_loc(dip_idx, neigh, neigh_p, r_data, lead_field, self.exponents[-1], s_noise,
                                        sigma_q, lam)
 
     def resample(self):
@@ -671,7 +716,7 @@ class SASMC(object):
     """
 
     def __init__(self, forward, evoked, s_noise, radius=None, sigma_neigh=None, n_parts=100, tmin=None, tmax=None,
-                 subsample=None, s_q=None, lam=0-25, N_dip_max=10):
+                 subsample=None, s_q=None, lam=0.25, N_dip_max=10):
 
         # 1) Choosen by the user
         self.n_parts = n_parts
@@ -695,16 +740,20 @@ class SASMC(object):
             self.s_noise = s_noise
 
         if radius is None:
-            self.radius = self.inizialize_radius()
+            self.radius = self.initialize_radius()
         else:
             self.radius = radius
+        print('Computing neighbours matrix...')
         self.neigh = self.create_neigh(self.radius)
+        print('[done]')
 
         if sigma_neigh is None:
             self.sigma_neigh = self.radius/2
         else:
             self.sigma_neigh = sigma_neigh
+        print('Computing neighbours probabilities...')
         self.neigh_p = self.create_neigh_p(self.sigma_neigh)
+        print('[done]')
 
         if tmin is None:
             self.tmin = 0
@@ -762,6 +811,7 @@ class SASMC(object):
         self._resample_it = list()
         self.est_n_dips = list()
         self.est_locs = list()
+        self.est_q = np.array([])
         self.model_sel = list()
         self.blob = list()
         self.SW_pv = list()
@@ -770,3 +820,293 @@ class SASMC(object):
 
         for _part in self.emp.particles:
             _part.compute_loglikelihood_unit(self.r_data, self.lead_field, self.s_noise, self.s_q)
+
+    def apply_sasmc(self, estimate_q=True):
+        """Run the SASMC sampler algorithm and performs point estimation at
+         the end of the main loop.
+
+        Parameters
+        ----------
+        estimate_q : bool
+            If true a point-estimate of the dipole moment is computed at the
+            last iteration
+        """
+
+        # --------- INIZIALIZATION ------------
+        # Samples are drawn from the prior distribution and weigths are set as
+        # uniform.
+        nd = np.array([_part.n_dips for _part in self.emp.particles])
+
+        # Creation of distances matrix
+        D = ssd.cdist(self.source_space, self.source_space)
+
+        while not np.all(nd <= self.N_dip_max):
+            nd_wrong = np.where(nd > self.N_dip_max)[0]
+            self.emp.particles[nd_wrong] =\
+                np.array([Particle(self.n_verts, self.lam)
+                         for _ in itertools.repeat(None, nd_wrong.shape[0])])
+            nd = np.array([_part.n_dips for _part in self.emp.particles])
+
+        # Point estimation for the first iteraction
+        self.emp.point_estimate(D, self.N_dip_max)
+
+        self.est_n_dips.append(self.emp.est_n_dips)
+        self.model_sel.append(self.emp.model_sel)
+        self.est_locs.append(self.emp.est_locs)
+        self.blob.append(self.emp.blob)
+
+        # ----------- MAIN CICLE --------------
+
+        while np.all(self.emp.exponents <= 1):
+            time_start = time.time()
+            print('iteration = {0}'.format(self.emp.exponents.shape[0]))
+            print('exponent = {0}'.format(self.emp.exponents[-1]))
+            print('ESS = {:.2%}'.format(self.emp.ESS/self.n_parts))
+
+            # STEP 1: (possible) resampling
+            if self.emp.ESS < self.n_parts/2:
+
+                self._resample_it.append(int(self.emp.exponents.shape[0]))
+
+                print('----- RESAMPLING -----')
+                self.emp.resample()
+                print('ESS = {:.2%}'.format(self.emp.ESS/self.n_parts))
+
+            # STEP 2: Sampling.
+            self.emp.sample(self.n_parts, self.n_verts, self.r_data, self.i_data, self.lead_field, self.neigh,
+                            self.neigh_p, self.s_noise, self.s_q, self.lam, self.N_dip_max)
+
+            # STEP 3: Point Estimation
+            # self.emp.point_estimate(D, self.N_dip_max)
+            #
+            # self.est_n_dips.append(self.emp.est_n_dips)
+            # self.model_sel.append(self.emp.model_sel)
+            # self.est_locs.append(self.emp.est_locs)
+            # self.blob.append(self.emp.blob)
+
+            # STEP 4: compute new exponent e new weights
+            self.emp.compute_exponent(self.s_noise)
+
+            time.sleep(0.01)
+            time_elapsed = (time.time() - time_start)
+            print("Computation time: " +
+                  "{:.2f}".format(time_elapsed) + " seconds")
+            print('-------------------------------')
+
+        # Estimation
+        self.emp.point_estimate(D, self.N_dip_max)
+
+        self.est_n_dips.append(self.emp.est_n_dips)
+        self.model_sel.append(self.emp.model_sel)
+        self.est_locs.append(self.emp.est_locs)
+        self.blob.append(self.emp.blob)
+        if estimate_q:
+            if self.est_n_dips[-1] == 0:
+                self.est_q = np.array([])
+            else:
+                self.compute_q(self.est_locs[-1])
+
+    def initialize_radius(self):
+        x_length = np.amax(self.source_space[:, 0]) - np.amin(self.source_space[:, 0])
+        y_length = np.amax(self.source_space[:, 1]) - np.amin(self.source_space[:, 1])
+        z_length = np.amax(self.source_space[:, 2]) - np.amin(self.source_space[:, 2])
+
+        max_length = max(x_length, y_length, z_length)
+
+        if max_length > 50:
+            radius = 10
+        elif max_length > 1:
+            radius = 1
+        else:
+            radius = 0.01
+
+        return radius
+
+    def create_neigh(self, radius):
+        n_max = 100
+        n_min = 3
+        D = ssd.cdist(self.source_space, self.source_space)
+        reached_points = np.array([0])
+        counter = 0
+        n_neigh = []
+        list_neigh = []
+
+        while counter < reached_points.shape[0] and self.source_space.shape[0] > reached_points.shape[0]:
+            P = reached_points[counter]
+            aux = np.array(sorted(np.where(D[P] <= radius)[0],
+                                  key=lambda k: D[P, k]))
+            n_neigh.append(aux.shape[0])
+
+            # Check the number of neighbours
+            if n_neigh[-1] < n_min:
+                raise ValueError('Computation of neighbours aborted since '
+                                 'their minimum number is definitely too small.\n'
+                                 'Please choose a higher radius.')
+            elif n_neigh[-1] > n_max:
+                raise ValueError('Computation of neighbours aborted since'
+                                 'their maximum number is definitely too big.\n'
+                                 'Please choose a lower radius.')
+            list_neigh.append(aux)
+            reached_points = np.append(reached_points, aux[~np.in1d(aux, reached_points)])
+            counter += 1
+
+        if counter >= reached_points.shape[0]:
+            raise ValueError('Too small value of the radius: the neighbour-matrix'
+                             'is not connected')
+        elif self.source_space.shape[0] == reached_points.shape[0]:
+            while counter < self.source_space.shape[0]:
+                P = reached_points[counter]
+                aux = np.array(sorted(np.where(D[P] <= radius)[0],
+                                      key=lambda k: D[P, k]))
+                n_neigh.append(aux.shape[0])
+
+                if n_neigh[-1] < n_min:
+                    raise ValueError('Computation of neighbours aborted since '
+                                     'their minimum number is definitely too small.\n'
+                                     'Please choose a higher radius.')
+                elif n_neigh[-1] > n_max:
+                    raise ValueError('Computation of neighbours aborted since'
+                                     'their maximum number is definitely too big.\n'
+                                     'Please choose a lower radius.')
+
+                list_neigh.append(aux)
+                counter += 1
+
+            n_neigh_max = max(n_neigh)
+
+            #n_neigh_min = min(n_neigh)
+            #n_neigh_mean = sum(n_neigh) / len(n_neigh)
+            #print('***** Tested radius = ' + str(radius) + ' *****')
+            #print('Maximum number of neighbours: ' + str(n_neigh_max))
+            #print('Minimum number of neighbours: ' + str(n_neigh_min))
+            #print('Average number of neighbours: ' + str(n_neigh_mean))
+
+            neigh = np.zeros([self.source_space.shape[0], n_neigh_max], dtype=int) - 1
+            for i in range(self.source_space.shape[0]):
+                neigh[i, 0:list_neigh[i].shape[0]] = list_neigh[i]
+            index_ord = np.argsort(neigh[:, 0])
+            neigh = neigh[index_ord]
+            return neigh
+
+        else:
+            raise RuntimeError('Some problems during computation of neighbours.')
+
+    def create_neigh_p(self, sigma_neigh):
+        D = ssd.cdist(self.source_space, self.source_space)
+        neigh_p = np.zeros(self.neigh.shape, dtype=float)
+        for i in range(self.source_space.shape[0]):
+            n_neig = len(np.where(self.neigh[i] > -1)[0])
+            neigh_p[i, 0:n_neig] = \
+                np.exp(-D[i, self.neigh[i, 0:n_neig]] ** 2 / (2 * sigma_neigh ** 2))
+            neigh_p[i] = neigh_p[i] / np.sum(neigh_p[i])
+        return neigh_p
+
+    def estimate_s_q(self):
+        dipoles_single_max = \
+            np.array([np.max(np.absolute(self.lead_field[:, 3 * c:3 * c + 3]))
+                      for c in range(self.source_space.shape[0])])
+        s_q = np.amax(np.absolute(self.r_data)) / np.mean(dipoles_single_max)
+        return s_q
+
+    def compute_q(self, est_locs):
+        """Point-estimation of the dipole moment
+
+        Parameters
+        ----------
+        est_locs : int array
+            Estimated dipole location (index of the brain grid points)
+        """
+        est_num = est_locs.shape[0]
+        [n_sens, n_time] = np.shape(self.r_data)
+
+        ind = np.ravel([[3*est_locs[idip], 3*est_locs[idip]+1,
+                       3*est_locs[idip]+2] for idip in range(est_num)])
+        Gc = self.lead_field[:, ind]
+        sigma = (self.s_q / self.s_noise)**2 * np.dot(Gc, np.transpose(Gc)) +\
+            np.eye(n_sens)
+        kal_mat = (self.s_q / self.s_noise)**2 * np.dot(np.transpose(Gc),
+                                                       np.linalg.inv(sigma))
+        self.est_q = np.array([np.dot(kal_mat, self.r_data[:, t])
+                              for t in range(n_time)])
+
+    def goodness_of_fit(self):
+        """Evaluation of the perfomance
+
+        Parameters
+        ----------
+        iteration : int
+            Iteration of interest
+        """
+
+        if not hasattr(self, 'est_n_dips'):
+            raise AttributeError('None estimation found!!!')
+
+        est_n_dips = self.est_n_dips[-1]
+        est_locs = self.est_locs[-1]
+        est_q = self.est_q
+        meas_field = self.r_data
+        rec_field = np.zeros(meas_field.shape)
+        for i_d in range(est_n_dips):
+            rec_field += np.dot(self.lead_field[:, 3*est_locs[i_d]:3*(est_locs[i_d]+1)],
+                                est_q[:, 3*i_d:3*(i_d+1)].T)
+
+        GOF = 1 - np.linalg.norm(meas_field - rec_field) / np.linalg.norm(meas_field)
+
+        return GOF
+
+    def to_stc(self, fwd, tmin=1, tmax=None, subject=None):
+        """Export results in .stc file
+
+        Parameters
+        ----------
+        file_name : str
+            Path and name of the file to be saved
+        fwd : dict
+            Forward structure from which the lead-field matrix and the source
+            space were been extracted
+        it_in and it_fin : int
+            First and last iteration to be saved
+        subject : str
+            Name of the subject
+        """
+        if 'SourceEstimate' not in dir():
+            from mne import SourceEstimate
+
+        if not hasattr(self, 'blob'):
+            raise AttributeError('Run filter first!!')
+
+        if tmax is None:
+            tmax = len(self.blob)
+
+        blobs = self.blob
+        vertno = [fwd['src'][0]['vertno'], fwd['src'][1]['vertno']]
+        nv_tot = fwd['nsource']
+
+        num_iter = tmax - tmin + 1
+        blob_tot = np.zeros([nv_tot, num_iter])
+
+        for it in np.arange(num_iter) + tmin-1:
+            blob_tot[:, it] = np.sum(blobs[it], axis=0)
+
+        stc = SourceEstimate(data=blob_tot, vertices=vertno, tmin=tmin,
+                             tstep=1, subject=subject)
+        return stc
+
+    def write_stc(self, file_name, fwd, tmin=1, tmax=None, subject=None):
+            """Export results in .stc file
+
+            Parameters
+            ----------
+            file_name : str
+                Path and name of the file to be saved
+            fwd : dict
+                Forward structure from which the lead-field matrix and the source
+                space were been extracted
+            it_in and it_fin : int
+                First and last iteration to be saved
+            subject : str
+                Name of the subject
+            """
+
+            stc = self.to_stc(fwd, tmin, tmax, subject)
+            stc.save(file_name)

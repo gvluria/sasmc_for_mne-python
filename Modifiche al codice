@@ -2,6 +2,9 @@ COSE GROSSE DA CAMBIARE:
 -   Al momento si crea e si distrugge l'attributo 'loglikelihood_unit' della classe Particle. Questo è brutto,
     sostituire con cambiamenti di valore tra None e non None, magari iniziandolo None
 -   I metodi di evoluzione fanno deepcopy su self: bruttissimo, riscrivere i singoli attributi
+- rendere la matrice D un attributo e calcolarla subito
+- rendere automatico l'aumento/diminuzione del raggio quando si creano i vicini
+- gestire meglio i tempi in input a sasmc, e gestire il rapporto tempi/samples
 
 
 
