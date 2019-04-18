@@ -27,10 +27,9 @@ fwd = read_forward_solution(fname_fwd_meeg, exclude='bads')
 fwd = pick_types_forward(fwd, meg=meg_sensor_type, eeg=False, ref_meg=False, seeg=False)
 
 # 1.2. (Evoked) Data
-_aux_evoked = read_evokeds(fname_evoked, condition='Right Auditory',
+evoked = read_evokeds(fname_evoked, condition='Right Auditory',
                            baseline=(None, 0))
-_aux_evoked = _aux_evoked.pick_types(meg=meg_sensor_type, eeg=False, exclude='bads')
-evoked = _aux_evoked.copy()
+evoked = evoked.pick_types(meg=meg_sensor_type, eeg=False, exclude='bads')
 # TODO: there should be some check of consistency with fwd
 
 # 1.3. SASMC parameters
@@ -40,11 +39,27 @@ ist_max = np.argmax(np.max(evoked.data, axis=0))
 ist_in = ist_max - 25
 ist_fin = ist_max + 25
 
+print('Analyzing sample in [{}, {}] - time in [{}, {}] ms'.format(
+    ist_in, ist_fin, evoked.times[ist_in], evoked.times[ist_fin]))
+
+# 1.3.2 Conversion time-sample
+time_in = 0.045
+time_fin = 0.128
+conv_ist_in, conv_ist_fin = evoked.time_as_index([time_in, time_fin], use_rounding=True)
+
+print('Time [{}, {}] converted in [{}, {}]'.format(
+    time_in, time_fin, conv_ist_in, conv_ist_fin))
+
+# Motivation for use_rounding=True
+_aux_index = np.atleast_1d(2.9)
+print('Time = {}'.format(_aux_index))
+print('use_rounding=False -> {}'.format(_aux_index.astype(int)[0]))
+print('use_true=False -> {}'.format(np.round(_aux_index).astype(int)[0]))
+
 # 1.3.2. Sigma q and Sigma noise (Alberto's trick)
 data = evoked.data[:, ist_in:ist_fin]
 sigma_q = 15 * np.max(abs(data)) / np.max(abs(fwd['sol']['data']))
 sigma_noise = 0.2 * np.max(abs(data))
-
 
 # In[]: Step 2. Run SASMC
 # TODO: print inside our functions should be more 'understandable'
