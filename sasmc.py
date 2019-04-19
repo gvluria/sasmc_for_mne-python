@@ -252,7 +252,7 @@ class Particle(object):
         prop_part = copy.deepcopy(self)
         birth_death = np.random.uniform(1e-16, 1)
 
-        if not hasattr(self, 'loglikelihood_unit'):
+        if self.loglikelihood_unit is None:
             self.compute_loglikelihood_unit(r_data, lead_field, s_noise, sigma_q)
 
         if birth_death < q_birth and prop_part.n_dips < N_dip_max:
@@ -340,7 +340,7 @@ class Particle(object):
         prop_part.compute_prior(lam)
         prop_part.compute_loglikelihood_unit(r_data, lead_field, s_noise, sigma_q)
 
-        if not hasattr(self, 'loglikelihood_unit'):
+        if self.loglikelihood_unit is None:
             self.compute_loglikelihood_unit(r_data, lead_field, s_noise, sigma_q)
 
         log_prod_like = prop_part.loglikelihood_unit - self.loglikelihood_unit
@@ -389,7 +389,7 @@ class EmpPdf(object):
     est_locs : array of ints
         Estimated sources locations
     """
-    def __init__(self, n_parts, n_verts, lam):
+    def __init__(self, n_parts, n_verts, lam, verbose=False):
         self.particles = np.array([Particle(n_verts, lam) for _ in itertools.repeat(None, n_parts)])
         self.logweights = np.array([np.log(1/n_parts) for _ in itertools.repeat(None, n_parts)])
         self.ESS = np.float32(1. / np.square(np.exp(self.logweights)).sum())
@@ -398,6 +398,7 @@ class EmpPdf(object):
         self.est_n_dips = None
         self.blob = None
         self.est_locs = None
+        self.verbose = verbose
         # TODO: controlla di non aver fatto casino con le dichiarazioni
 
     def __repr__(self):
@@ -493,7 +494,8 @@ class EmpPdf(object):
             The standard deviation of the noise distribution.
         """
         if self.exponents[-1] == 1:
-            print('Last iteration...')
+            if self.verbose:
+                print('Last iteration...')
             self.exponents = np.append(self.exponents, 1.01)
         else:
             delta_a = delta_min
@@ -587,7 +589,8 @@ class EmpPdf(object):
             updated EmpPdf
         """
 
-        print('Computing estimates...')
+        if self.verbose:
+            print('Computing estimates...')
         weights = np.exp(self.logweights)
 
         # Step1: Number of Dipoles
@@ -715,13 +718,14 @@ class SASMC(object):
         and || || is the Frobenius norm.
     """
 
-    def __init__(self, forward, evoked, s_noise, radius=None, sigma_neigh=None, n_parts=100, tmin=None, tmax=None,
-                 subsample=None, s_q=None, lam=0.25, N_dip_max=10):
+    def __init__(self, forward, evoked, s_noise, radius=None, sigma_neigh=None, n_parts=100, sample_min=None,
+                 sample_max=None, subsample=None, s_q=None, lam=0.25, N_dip_max=10, verbose=False):
 
         # 1) Choosen by the user
         self.n_parts = n_parts
         self.lam = lam
         self.N_dip_max = N_dip_max
+        self.verbose = verbose
 
         self.forward = forward
         # TODO: Decidere se lasciare l'analisi MEG + EEG e come farlo nel caso
@@ -739,6 +743,7 @@ class SASMC(object):
             self.lead_field = forward['sol']['data']
             self.s_noise = s_noise
 
+        self.distance_matrix = ssd.cdist(self.source_space, self.source_space)
         if radius is None:
             self.radius = self.initialize_radius()
         else:
@@ -755,17 +760,25 @@ class SASMC(object):
         self.neigh_p = self.create_neigh_p(self.sigma_neigh)
         print('[done]')
 
-        if tmin is None:
+        if sample_min is None:
             self.tmin = 0
         else:
-            self.tmin = tmin
+            if isinstance(sample_min, (int, np.int_)):
+                self.tmin = sample_min
+            else:
+                raise ValueError('sample_min index should be an integer')
             # self.ist_in = np.argmin(np.abs(evoked.times-time_in * 0.001))
             # TODO: pensare meglio alla definizione di distanza (istante piu' vicino? o istante prima/dopo?)
-        if tmax is None:
+        if sample_max is None:
             self.tmax = evoked.data.shape[1]-1
         else:
             # self.ist_fin = np.argmin(np.abs(evoked.times - time_fin * 0.001))
-            self.tmax = tmax
+            if isinstance(sample_max, (int, np.int_)):
+                self.tmax = sample_max
+            else:
+                raise ValueError('sample_max index should be an integer')
+        print('Analyzing data from {0} ms to {1} ms'.format(round(evoked.times[self.tmin], 4),
+                                                            round(evoked.times[self.tmax], 4)))
 
         if subsample is not None:
             self.subsample = subsample
@@ -774,37 +787,39 @@ class SASMC(object):
             if subsample is not None:
                 print('Subsampling data with step {0}'.format(subsample))
                 data = evoked.data[:, self.tmin:self.tmax + 1:subsample]
-                print('Data shape: {0}'.format(data.shape))
+                # print('Data shape: {0}'.format(data.shape))
             else:
                 data = evoked.data[:, self.tmin:self.tmax+1]
-                print('Data shape: {0}'.format(data.shape))
+                # print('Data shape: {0}'.format(data.shape))
         elif isinstance(evoked, list):
             if subsample is not None:
                 print('Subsampling data with step {0}'.format(subsample))
                 data_eeg = evoked[0][:, self.tmin:self.tmax+1:subsample]
                 data_meg = evoked[1][:, self.tmin:self.tmax+1:subsample]
                 data = np.vstack((data_eeg, s_noise_ratio*data_meg))
-                print('Data shape: {0}'.format(data.shape))
+                # print('Data shape: {0}'.format(data.shape))
             else:
                 data_eeg = evoked[0][:, self.tmin:self.tmax+1]
                 data_meg = evoked[1][:, self.tmin:self.tmax+1]
                 data = np.vstack((data_eeg, s_noise_ratio*data_meg))
-                print('Data shape: {0}'.format(data.shape))
+                # print('Data shape: {0}'.format(data.shape))
         else:
             if subsample is not None:
                 print('Subsampling data with step {0}'.format(subsample))
                 data = evoked[:, self.tmin:self.tmax + 1:subsample]
-                print('Data shape: {0}'.format(data.shape))
+                # print('Data shape: {0}'.format(data.shape))
             else:
                 data = evoked[:, self.tmin:self.tmax+1]
-                print('Data shape: {0}'.format(data.shape))
+                # print('Data shape: {0}'.format(data.shape))
         self.r_data = data.real
         self.i_data = data.imag
         del data
 
         if s_q is None:
+            print('Estimating dipole strength variance...')
             self.s_q = self.estimate_s_q()
-            print('Estimated sigma q: {0}'.format(self.s_q))
+            print('[done]')
+            print(' Estimated dipole strength variance: {:.4e}'.format(self.s_q))
         else:
             self.s_q = s_q
 
@@ -816,7 +831,7 @@ class SASMC(object):
         self.blob = list()
         self.SW_pv = list()
 
-        self.emp = EmpPdf(self.n_parts, self.n_verts, self.lam)
+        self.emp = EmpPdf(self.n_parts, self.n_verts, self.lam, verbose=self.verbose)
 
         for _part in self.emp.particles:
             _part.compute_loglikelihood_unit(self.r_data, self.lead_field, self.s_noise, self.s_q)
@@ -832,13 +847,14 @@ class SASMC(object):
             last iteration
         """
 
+        print('Computing inverse solution. This will take a while...')
         # --------- INIZIALIZATION ------------
         # Samples are drawn from the prior distribution and weigths are set as
         # uniform.
         nd = np.array([_part.n_dips for _part in self.emp.particles])
 
         # Creation of distances matrix
-        D = ssd.cdist(self.source_space, self.source_space)
+        # D = ssd.cdist(self.source_space, self.source_space)
 
         while not np.all(nd <= self.N_dip_max):
             nd_wrong = np.where(nd > self.N_dip_max)[0]
@@ -848,7 +864,7 @@ class SASMC(object):
             nd = np.array([_part.n_dips for _part in self.emp.particles])
 
         # Point estimation for the first iteraction
-        self.emp.point_estimate(D, self.N_dip_max)
+        self.emp.point_estimate(self.distance_matrix, self.N_dip_max)
 
         self.est_n_dips.append(self.emp.est_n_dips)
         self.model_sel.append(self.emp.model_sel)
@@ -859,18 +875,18 @@ class SASMC(object):
 
         while np.all(self.emp.exponents <= 1):
             time_start = time.time()
-            print('iteration = {0}'.format(self.emp.exponents.shape[0]))
-            print('exponent = {0}'.format(self.emp.exponents[-1]))
-            print('ESS = {:.2%}'.format(self.emp.ESS/self.n_parts))
+            if self.verbose:
+                print('iteration = {0}'.format(self.emp.exponents.shape[0]))
+                print('exponent = {0}'.format(self.emp.exponents[-1]))
+                print('ESS = {:.2%}'.format(self.emp.ESS/self.n_parts))
 
             # STEP 1: (possible) resampling
             if self.emp.ESS < self.n_parts/2:
-
                 self._resample_it.append(int(self.emp.exponents.shape[0]))
-
-                print('----- RESAMPLING -----')
                 self.emp.resample()
-                print('ESS = {:.2%}'.format(self.emp.ESS/self.n_parts))
+                if self.verbose:
+                    print('----- RESAMPLING -----')
+                    print('ESS = {:.2%}'.format(self.emp.ESS/self.n_parts))
 
             # STEP 2: Sampling.
             self.emp.sample(self.n_parts, self.n_verts, self.r_data, self.i_data, self.lead_field, self.neigh,
@@ -889,12 +905,12 @@ class SASMC(object):
 
             time.sleep(0.01)
             time_elapsed = (time.time() - time_start)
-            print("Computation time: " +
-                  "{:.2f}".format(time_elapsed) + " seconds")
-            print('-------------------------------')
+            if self.verbose:
+                print('Computation time: {:.2f} seconds'.format(time_elapsed))
+                print('-------------------------------')
 
         # Estimation
-        self.emp.point_estimate(D, self.N_dip_max)
+        self.emp.point_estimate(self.distance_matrix, self.N_dip_max)
 
         self.est_n_dips.append(self.emp.est_n_dips)
         self.model_sel.append(self.emp.model_sel)
@@ -905,6 +921,7 @@ class SASMC(object):
                 self.est_q = np.array([])
             else:
                 self.compute_q(self.est_locs[-1])
+        print('[done]')
 
     def initialize_radius(self):
         x_length = np.amax(self.source_space[:, 0]) - np.amin(self.source_space[:, 0])
@@ -925,7 +942,7 @@ class SASMC(object):
     def create_neigh(self, radius):
         n_max = 100
         n_min = 3
-        D = ssd.cdist(self.source_space, self.source_space)
+        # D = ssd.cdist(self.source_space, self.source_space)
         reached_points = np.array([0])
         counter = 0
         n_neigh = []
@@ -933,8 +950,8 @@ class SASMC(object):
 
         while counter < reached_points.shape[0] and self.source_space.shape[0] > reached_points.shape[0]:
             P = reached_points[counter]
-            aux = np.array(sorted(np.where(D[P] <= radius)[0],
-                                  key=lambda k: D[P, k]))
+            aux = np.array(sorted(np.where(self.distance_matrix[P] <= radius)[0],
+                                  key=lambda k: self.distance_matrix[P, k]))
             n_neigh.append(aux.shape[0])
 
             # Check the number of neighbours
@@ -956,8 +973,8 @@ class SASMC(object):
         elif self.source_space.shape[0] == reached_points.shape[0]:
             while counter < self.source_space.shape[0]:
                 P = reached_points[counter]
-                aux = np.array(sorted(np.where(D[P] <= radius)[0],
-                                      key=lambda k: D[P, k]))
+                aux = np.array(sorted(np.where(self.distance_matrix[P] <= radius)[0],
+                                      key=lambda k: self.distance_matrix[P, k]))
                 n_neigh.append(aux.shape[0])
 
                 if n_neigh[-1] < n_min:
@@ -992,12 +1009,12 @@ class SASMC(object):
             raise RuntimeError('Some problems during computation of neighbours.')
 
     def create_neigh_p(self, sigma_neigh):
-        D = ssd.cdist(self.source_space, self.source_space)
+        # D = ssd.cdist(self.source_space, self.source_space)
         neigh_p = np.zeros(self.neigh.shape, dtype=float)
         for i in range(self.source_space.shape[0]):
             n_neig = len(np.where(self.neigh[i] > -1)[0])
             neigh_p[i, 0:n_neig] = \
-                np.exp(-D[i, self.neigh[i, 0:n_neig]] ** 2 / (2 * sigma_neigh ** 2))
+                np.exp(-self.distance_matrix[i, self.neigh[i, 0:n_neig]] ** 2 / (2 * sigma_neigh ** 2))
             neigh_p[i] = neigh_p[i] / np.sum(neigh_p[i])
         return neigh_p
 
