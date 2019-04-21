@@ -55,17 +55,31 @@ print('    Time [{}, {}] converted in [{}, {}]'.format(
 _aux_index = np.atleast_1d(2.9)
 print('    Time = {}'.format(_aux_index))
 print('    use_rounding=False -> {}'.format(_aux_index.astype(int)[0]))
-print('    use_true=False -> {}'.format(np.round(_aux_index).astype(int)[0]))
+print('    use_rounding=True -> {}'.format(np.round(_aux_index).astype(int)[0]))
+
+# Motivation for control on integer
+print('    Type ist_in = {}'.format(type(ist_in)))
+print('    Compare with np.int_ = {}'.format(isinstance(ist_in, np.int_)))
+print('    Compare with np.integer = {}'.format(isinstance(ist_in, np.integer)))
+if isinstance(ist_in, np.int64):
+    aux_type = np.int32
+else:
+    aux_type = np.int64
+print('    Compare with np.int_ part ii = {}'.format(isinstance(ist_in.astype(aux_type), np.int_)))
+print('    Compare with np.integer part ii = {}'.format(isinstance(ist_in.astype(aux_type), np.integer)))
+
+
 
 # 1.3.2. Sigma q and Sigma noise (Alberto's trick)
 data = evoked.data[:, ist_in:ist_fin]
 
-#sigma_q = 15 * np.max(abs(data)) / np.max(abs(fwd['sol']['data']))
-sigma_q = None
+sigma_q = 15 * np.max(abs(data)) / np.max(abs(fwd['sol']['data']))
+#sigma_q = None
 
-#sigma_noise = 0.2 * np.max(abs(data))
-sigma_noise = estimate_noise_std(evoked.data, 0, 100)
+sigma_noise = 0.2 * np.max(abs(data))
+#sigma_noise = estimate_noise_std(evoked.data, 0, 100)
 
+subsample = None
 
 print('    Sigma noise: {0}'.format(sigma_noise))
 print('    Sigma q: {0}'.format(sigma_q))
@@ -74,8 +88,8 @@ print('    Sigma q: {0}'.format(sigma_q))
 
 # In[]: Step 2. Run SASMC
 # TODO: print inside our functions should be more 'understandable'
-_sasmc = SASMC(fwd, evoked, n_parts=300,  s_noise=sigma_noise, sample_min=ist_in, sample_max=ist_fin,
-               s_q=sigma_q, subsample=2, verbose=False)
+_sasmc = SASMC(fwd, evoked, n_parts=100,  s_noise=sigma_noise, sample_min=ist_in, sample_max=ist_fin,
+               s_q=sigma_q, subsample=subsample, verbose=True)
 _sasmc.apply_sasmc()
 
 print('    Estimated number of sources: {0}'.format(_sasmc.est_n_dips[-1]))

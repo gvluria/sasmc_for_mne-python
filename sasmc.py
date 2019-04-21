@@ -5,6 +5,9 @@
 #
 # License: BSD (3-clause)
 
+from __future__ import division
+# TODO: check and import only if necessary
+
 import numpy as np
 import scipy.spatial.distance as ssd
 import copy
@@ -445,11 +448,13 @@ class EmpPdf(object):
 
         """
 
-        for _part in self.particles:
+        for i_part, _part in enumerate(self.particles):
             _part = _part.evol_n_dips(n_verts, r_data, lead_field, N_dip_max, self.exponents[-1], s_noise, sigma_q, lam)
             for dip_idx in reversed(range(_part.n_dips)):
                 _part = _part.evol_loc(dip_idx, neigh, neigh_p, r_data, lead_field, self.exponents[-1], s_noise,
                                        sigma_q, lam)
+            self.particles[i_part] = _part
+            # TODO: more clever way?
 
     def resample(self):
         """Performs a systematic resampling step of the whole empirical pdf
@@ -763,7 +768,7 @@ class SASMC(object):
         if sample_min is None:
             self.tmin = 0
         else:
-            if isinstance(sample_min, (int, np.int_)):
+            if isinstance(sample_min, (int, np.integer)):
                 self.tmin = sample_min
             else:
                 raise ValueError('sample_min index should be an integer')
@@ -773,7 +778,7 @@ class SASMC(object):
             self.tmax = evoked.data.shape[1]-1
         else:
             # self.ist_fin = np.argmin(np.abs(evoked.times - time_fin * 0.001))
-            if isinstance(sample_max, (int, np.int_)):
+            if isinstance(sample_max, (int, np.integer)):
                 self.tmax = sample_max
             else:
                 raise ValueError('sample_max index should be an integer')
