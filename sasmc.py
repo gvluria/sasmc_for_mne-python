@@ -1076,7 +1076,7 @@ class SASMC(object):
 
         return GOF
 
-    def to_stc(self, fwd, tmin=1, tmax=None, subject=None):
+    def to_stc(self, fwd, subject=None):
         """Export results in .stc file
 
         Parameters
@@ -1097,20 +1097,15 @@ class SASMC(object):
         if not hasattr(self, 'blob'):
             raise AttributeError('Run filter first!!')
 
-        if tmax is None:
-            tmax = len(self.blob)
-
         blobs = self.blob
         vertno = [fwd['src'][0]['vertno'], fwd['src'][1]['vertno']]
         nv_tot = fwd['nsource']
 
-        num_iter = tmax - tmin + 1
-        blob_tot = np.zeros([nv_tot, num_iter])
+        blob_tot = np.array([np.sum(bl, axis=0) for bl in blobs[1:]])
+        # I don't store first iteration which is always empty
 
-        for it in np.arange(num_iter) + tmin-1:
-            blob_tot[:, it] = np.sum(blobs[it], axis=0)
-
-        stc = SourceEstimate(data=blob_tot, vertices=vertno, tmin=tmin,
+        tmin = 1
+        stc = SourceEstimate(data=blob_tot.T, vertices=vertno, tmin=tmin,
                              tstep=1, subject=subject)
         return stc
 
