@@ -1076,7 +1076,7 @@ class SASMC(object):
 
         return GOF
 
-    def to_stc(self, fwd, subject=None):
+    def to_stc(self, subject=None):
         """Export results in .stc file
 
         Parameters
@@ -1097,7 +1097,9 @@ class SASMC(object):
         if not hasattr(self, 'blob'):
             raise AttributeError('Run filter first!!')
 
+        # TODO: fwd is already saved in _sasmc
         blobs = self.blob
+        fwd = self.forward
         vertno = [fwd['src'][0]['vertno'], fwd['src'][1]['vertno']]
         nv_tot = fwd['nsource']
 
@@ -1109,7 +1111,36 @@ class SASMC(object):
                              tstep=1, subject=subject)
         return stc
 
+    def plot_itensity_measure(self, subject, subjects_dir, estimated_loc=True, surface='inflated', hemi='split',
+                              views='lat', clim='auto'):
+        # TODO: Does it work also when we have multiple iterations?
+        # TODO some default value for subject/subject_dir?
+        # TODO some text in time-label?
+        # TODO: input as mne-python plot function?
+        # TODO: what happen if no dipole are estimate?
+        # TODO: --> do we really need a function?
+        # TODO: --> when hemi = 'split' problem in keeping the figure.
+
+        stc = self.to_stc(subject)
+        brain = stc.plot(subject, surface=surface, hemi=hemi, time_label=' ', subjects_dir=subjects_dir, views=views,
+                         clim=clim)
+        if estimated_loc:
+            est_locs = self.est_locs[-1]
+            nv_lh = stc.vertices[0].shape[0]
+            est_locs_lh = est_locs[np.where(est_locs < nv_lh)[0]]
+            est_locs_rh = est_locs[np.where(est_locs >= nv_lh)[0]] - nv_lh
+            if (hemi is not 'rh') and (est_locs_lh.size != 0):
+                brain.add_foci(stc.vertices[0][est_locs_lh], coords_as_verts=True,
+                               hemi='lh', color='blue', scale_factor=0.3)
+            if (hemi is not 'lh') and (est_locs_rh.size != 0):
+                brain.add_foci(stc.vertices[1][est_locs_rh], coords_as_verts=True,
+                           hemi='rh', color='blue', scale_factor=0.3)
+        return brain
+
     def write_stc(self, file_name, fwd, tmin=1, tmax=None, subject=None):
+
+        # TODO: --> Do we really need this function?
+
             """Export results in .stc file
 
             Parameters

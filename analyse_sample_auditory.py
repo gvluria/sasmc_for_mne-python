@@ -6,6 +6,7 @@
 from os import path as op
 import numpy as np
 import matplotlib.pyplot as plt
+from mayavi import mlab
 
 from mne.datasets import sample
 from mne import (read_forward_solution, pick_types_forward,
@@ -13,14 +14,12 @@ from mne import (read_forward_solution, pick_types_forward,
 from mne import Dipole as mneDipole
 from sasmc import SASMC, estimate_noise_std
 
-#import sys
-#sys.path.insert(0, './old_files/')
-#import pysmc
-
 # In[]: Step 1. Load and define input parameter
 data_path = sample.data_path()
 fname_fwd_meeg = op.join(data_path, 'MEG', 'sample', 'sample_audvis-meg-eeg-oct-6-fwd.fif')
 fname_evoked = op.join(data_path, 'MEG', 'sample', 'sample_audvis-ave.fif')
+subject = 'sample'
+subjects_dir = op.join(data_path, 'subjects')
 
 meg_sensor_type = True
 
@@ -34,7 +33,6 @@ evoked = evoked.pick_types(meg=meg_sensor_type, eeg=False, exclude='bads')
 # TODO: there should be some check of consistency with fwd
 
 # 1.3. SASMC parameters
-
 # 1.3.1. Time points
 ist_max = np.argmax(np.max(evoked.data, axis=0))
 ist_in = ist_max - 25
@@ -68,23 +66,20 @@ else:
 print('    Compare with np.int_ part ii = {}'.format(isinstance(ist_in.astype(aux_type), np.int_)))
 print('    Compare with np.integer part ii = {}'.format(isinstance(ist_in.astype(aux_type), np.integer)))
 
-
-
 # 1.3.2. Sigma q and Sigma noise (Alberto's trick)
 data = evoked.data[:, ist_in:ist_fin]
 
 sigma_q = 15 * np.max(abs(data)) / np.max(abs(fwd['sol']['data']))
-#sigma_q = None
+# sigma_q = None
 
 sigma_noise = 0.2 * np.max(abs(data))
-#sigma_noise = estimate_noise_std(evoked.data, 0, 100)
+# sigma_noise = estimate_noise_std(evoked.data, 0, 100)
 
 subsample = None
 
 print('    Sigma noise: {0}'.format(sigma_noise))
 print('    Sigma q: {0}'.format(sigma_q))
-#print(estimate_noise_std(evoked.data, 0, 100))
-
+# print(estimate_noise_std(evoked.data, 0, 100))
 
 # In[]: Step 2. Run SASMC
 # TODO: print inside our functions should be more 'understandable'
@@ -93,7 +88,7 @@ _sasmc = SASMC(fwd, evoked, n_parts=100,  s_noise=sigma_noise, sample_min=ist_in
 _sasmc.apply_sasmc()
 
 print('    Estimated number of sources: {0}'.format(_sasmc.est_n_dips[-1]))
-print('    Estimated sources locations: {0}'.format(_sasmc.est_locs[-1]))
+print('    Estimated source locations: {0}'.format(_sasmc.est_locs[-1]))
 
 # In[]: Step 3. Save point estimates as mne.Dipole.
 times = evoked.times[_sasmc.tmin:_sasmc.tmax+1]
@@ -110,16 +105,13 @@ dips = mneDipole(np.tile(times[0], num_dip), pos, amplitude[:, 0], orientation, 
 
 # In[]: Step 4. Visualize
 est_cs = _sasmc.est_locs[-1]
-est_q = np.zeros((est_cs.shape[0], _sasmc.est_q.shape[0],3))
+est_q = np.zeros((est_cs.shape[0], _sasmc.est_q.shape[0], 3))
 for i in range(_sasmc.est_q.shape[0]):
     _temp = _sasmc.est_q[i, :].reshape(-1, 3)
     for j in range(est_cs.shape[0]):
         est_q[j, i, :] += _temp[j]
 
 fname_trans = op.join(data_path, 'MEG', 'sample', 'sample_audvis_raw-trans.fif')
-subjects_dir = op.join(data_path, 'subjects')
-
-
 plt.figure()
 for _q in est_q:
     plt.plot(np.linalg.norm(_q, axis=1))
@@ -127,11 +119,15 @@ for _q in est_q:
 for i_dip in range(num_dip):
     dips.plot_locations(fname_trans, 'sample', subjects_dir, mode='orthoview', idx=i_dip)
 
-#plt.figure()
-#plt.plot(evoked.times, evoked.data.T)
-plt.show()
 
 # TODO: How to properly deal with time-point selection?
 # TODO: How is related the time interval in dipole-fitting tutorial with N100????
 
+# In []: Step 5. Save blob as stc
+# TODO: per qualche ragione quando hemi='split' mi si chiude la finestra
+# TODO: in sasmc c'e' una funzione write stc che secondo me e' davvero inutile.
+_sasmc.plot_itensity_measure(subject, subjects_dir, hemi='both', clim=dict(kind='value', lims=[1e-4, 1e-1, 1]))
+_sasmc.plot_itensity_measure(subject, subjects_dir, hemi='rh', clim=dict(kind='value', lims=[1e-4, 1e-1, 1]))
+_sasmc.plot_itensity_measure(subject, subjects_dir, hemi='lh', clim=dict(kind='value', lims=[1e-4, 1e-1, 1]))
 
+mlab.show()
