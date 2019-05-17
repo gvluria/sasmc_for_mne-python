@@ -14,43 +14,39 @@ import copy
 import time
 import itertools
 import mne
+from mayavi import mlab
 
-
-def estimate_noise_std(evoked, tmin=None, tmax=None, picks=None):
+def estimate_noise_std(evoked, sample_min=None, sample_max=None, picks=None):
     '''Estimate the standard deviation of the noise distribution from a
     portion of the data which is assumed to be generated from noise only.
 
     Parameters
     ----------
-    evoked: instance of Evoked
-        The evoked data
-    time_in : float | None (default None)
-        First instant (in ms) of the portion of the data used.
-        If None it is set equal to the first instant of data.
-    time_fin : float | None (default None)
-        Last istant (in ms) of the portion of the data used.
-        If None it is set equal to the last instant of data.
-    picks: array-like of int | None (default None)
-        The indices of channels used for the estimation. If None
-        all channels are used.
+    evoked: Evoked object
+        Evoked data
+    sample_min : float | None
+        First sample of the portion of the data used.
+        If None, it will be set equal to the first sample of the data.
+    sample_max : float | None
+        Last sample of the portion of the data used.
+        If None, it will be set equal to the last sample of the data.
+    picks: array-like of int | None
+        indices of selected channels. If None, all channels are used.
 
     Returns
     -------
     s_noise : float
-        Estimated standard deviation
+        Estimated noise standard deviation
     '''
 
     # TODO: gestire meglio i picks (consentire una scrittura tipo picks = 'grad')
 
-    if isinstance(evoked, mne.evoked.Evoked):
-        _data = evoked.data
-    else:
-        _data = evoked
+    _data = evoked.data
 
     if picks is None:
-        prestimulus = _data[:, tmin:tmax + 1]
+        prestimulus = _data[:, sample_min:sample_max + 1]
     else:
-        prestimulus = _data[picks, tmin:tmax + 1]
+        prestimulus = _data[picks, sample_min:sample_max + 1]
 
     s_noise = np.mean(np.std(prestimulus, axis=1))
     return s_noise
@@ -412,7 +408,7 @@ class EmpPdf(object):
                                                                                            _part.nu, _part)
         return s
 
-    def sample(self, n_parts, n_verts, r_data, i_data, lead_field, neigh, neigh_p, s_noise, sigma_q, lam, N_dip_max):
+    def sample(self, n_verts, r_data, lead_field, neigh, neigh_p, s_noise, sigma_q, lam, N_dip_max):
         """Perform a full evolution step of the whole empirical pdf.
         This is done by calling the evol_n_dips method on each particle
         forming the empirical pdf and calling the evol_loc method on each dipole of
@@ -420,16 +416,11 @@ class EmpPdf(object):
 
         Parameters
         ----------
-        n_parts : int
-            The number of particles forming the empirical pdf.
         n_verts : int
             The number of the points in the given brain discretization.
         r_data : array of floats, shape (n_sens, n_ist)
             The real part of the data; n_sens is the number of sensors and
-            n_ist is the number of time-points or of frequencies.
-        i_data : array of floats, shape (n_sens, n_ist)
-            The imaginary part of the data; n_sens is the number of sensors
-            and n_ist is the number of time-points or of frequencies.
+            n_ist is the number of time-points.
         lead_field : array of floats, shape (n_sens x 3*n_verts)
             The leadfield matrix.
         neigh : array of ints
@@ -639,8 +630,8 @@ class EmpPdf(object):
             self.est_locs = np.argmax(self.blob, axis=1)
 
 
-class SASMC(object):
-    """ Class representing the SASMC samplers algorithm
+class Sesame(object):
+    """ Sequential Semi-Analytic Monte-Carlo Estimation (SESAME) of sources
 
     Parameters
     ----------
@@ -659,12 +650,12 @@ class SASMC(object):
         If None it is set equal to radius/2.
     n_parts : int (default 100)
         The number of particles forming the empirical pdf.
-    time_in : float | None (default None)
-        First instant (in ms) of the time window in which data are analyzed.
-        If None time window starts from the first instant of data.
-    time_fin : float | None (default None)
-        Last istant (in ms) of the time window in which dara are analyzed.
-        If None time window ends with the last instant of data.
+    sample_min : float | None (default None)
+        First sample of the time window in which data are analyzed.
+        If None, time window starts from the first sample of the data.
+    sample_max : float | None (default None)
+        Last sample of the time window in which dara are analyzed.
+        If None, time window ends with the last sample of the data.
     s_q : float | None (default None)
         The standard deviation of the prior of the dipole moment.
         If None its value is automatic estimated.
@@ -687,10 +678,10 @@ class SASMC(object):
         The neighbours of each point in the brain discretization.
     neigh_p : array of floats
         The neighbours' probabilities.
-    ###ist_in : int
-        The first time point of the time window in which data are analyzed.
-    ####ist_fin : int
-        The last time point of the time window in which data are analyzed.
+    s_min : int
+        The first sample of the time window in which data are analyzed.
+    s_max : int
+        The last sample of the time window in which data are analyzed.
     r_data : array of floats, shape (n_sens, n_ist)
         The real part of the data; n_sens is the number of sensors and
         n_ist is the number of time-points or of frequencies.
@@ -733,20 +724,10 @@ class SASMC(object):
         self.verbose = verbose
 
         self.forward = forward
-        # TODO: Decidere se lasciare l'analisi MEG + EEG e come farlo nel caso
-        if isinstance(self.forward, list):
-            print('Analyzing MEG and EEG data together....')
-            self.source_space = forward[0]['source_rr']
-            self.n_verts = self.source_space.shape[0]
-            s_noise_ratio = s_noise[0] / s_noise[1]
-            self.lead_field = np.vstack((forward[0]['sol']['data'], s_noise_ratio*forward[1]['sol']['data']))
-            self.s_noise = s_noise[0]
-            print('Leadfield shape: {0}'.format(self.lead_field.shape))
-        else:
-            self.source_space = forward['source_rr']
-            self.n_verts = self.source_space.shape[0]
-            self.lead_field = forward['sol']['data']
-            self.s_noise = s_noise
+        self.source_space = forward['source_rr']
+        self.n_verts = self.source_space.shape[0]
+        self.lead_field = forward['sol']['data']
+        self.s_noise = s_noise
 
         self.distance_matrix = ssd.cdist(self.source_space, self.source_space)
         if radius is None:
@@ -766,56 +747,34 @@ class SASMC(object):
         print('[done]')
 
         if sample_min is None:
-            self.tmin = 0
+            self.s_min = 0
         else:
             if isinstance(sample_min, (int, np.integer)):
-                self.tmin = sample_min
+                self.s_min = sample_min
             else:
                 raise ValueError('sample_min index should be an integer')
             # self.ist_in = np.argmin(np.abs(evoked.times-time_in * 0.001))
             # TODO: pensare meglio alla definizione di distanza (istante piu' vicino? o istante prima/dopo?)
         if sample_max is None:
-            self.tmax = evoked.data.shape[1]-1
+            self.s_max = evoked.data.shape[1]-1
         else:
             # self.ist_fin = np.argmin(np.abs(evoked.times - time_fin * 0.001))
             if isinstance(sample_max, (int, np.integer)):
-                self.tmax = sample_max
+                self.s_max = sample_max
             else:
                 raise ValueError('sample_max index should be an integer')
-        print('Analyzing data from {0} ms to {1} ms'.format(round(evoked.times[self.tmin], 4),
-                                                            round(evoked.times[self.tmax], 4)))
+        print('Analyzing data from {0} ms to {1} ms'.format(round(evoked.times[self.s_min], 4),
+                                                            round(evoked.times[self.s_max], 4)))
 
         if subsample is not None:
             self.subsample = subsample
 
-        if isinstance(evoked, mne.evoked.Evoked):
-            if subsample is not None:
-                print('Subsampling data with step {0}'.format(subsample))
-                data = evoked.data[:, self.tmin:self.tmax + 1:subsample]
-                # print('Data shape: {0}'.format(data.shape))
-            else:
-                data = evoked.data[:, self.tmin:self.tmax+1]
-                # print('Data shape: {0}'.format(data.shape))
-        elif isinstance(evoked, list):
-            if subsample is not None:
-                print('Subsampling data with step {0}'.format(subsample))
-                data_eeg = evoked[0][:, self.tmin:self.tmax+1:subsample]
-                data_meg = evoked[1][:, self.tmin:self.tmax+1:subsample]
-                data = np.vstack((data_eeg, s_noise_ratio*data_meg))
-                # print('Data shape: {0}'.format(data.shape))
-            else:
-                data_eeg = evoked[0][:, self.tmin:self.tmax+1]
-                data_meg = evoked[1][:, self.tmin:self.tmax+1]
-                data = np.vstack((data_eeg, s_noise_ratio*data_meg))
-                # print('Data shape: {0}'.format(data.shape))
+        if subsample is not None:
+            print('Subsampling data with step {0}'.format(subsample))
+            data = evoked.data[:, self.s_min:self.s_max + 1:subsample]
         else:
-            if subsample is not None:
-                print('Subsampling data with step {0}'.format(subsample))
-                data = evoked[:, self.tmin:self.tmax + 1:subsample]
-                # print('Data shape: {0}'.format(data.shape))
-            else:
-                data = evoked[:, self.tmin:self.tmax+1]
-                # print('Data shape: {0}'.format(data.shape))
+            data = evoked.data[:, self.s_min:self.s_max+1]
+
         self.r_data = data.real
         self.i_data = data.imag
         del data
@@ -841,7 +800,7 @@ class SASMC(object):
         for _part in self.emp.particles:
             _part.compute_loglikelihood_unit(self.r_data, self.lead_field, self.s_noise, self.s_q)
 
-    def apply_sasmc(self, estimate_q=True):
+    def apply_sesame(self, estimate_q=True):
         """Run the SASMC sampler algorithm and performs point estimation at
          the end of the main loop.
 
@@ -894,7 +853,7 @@ class SASMC(object):
                     print('ESS = {:.2%}'.format(self.emp.ESS/self.n_parts))
 
             # STEP 2: Sampling.
-            self.emp.sample(self.n_parts, self.n_verts, self.r_data, self.i_data, self.lead_field, self.neigh,
+            self.emp.sample(self.n_verts, self.r_data, self.lead_field, self.neigh,
                             self.neigh_p, self.s_noise, self.s_q, self.lam, self.N_dip_max)
 
             # STEP 3: Point Estimation
@@ -1111,6 +1070,7 @@ class SASMC(object):
                              tstep=1, subject=subject)
         return stc
 
+    @mlab.show
     def plot_itensity_measure(self, subject, subjects_dir, estimated_loc=True, surface='inflated', hemi='split',
                               views='lat', clim='auto'):
         # TODO: Does it work also when we have multiple iterations?
