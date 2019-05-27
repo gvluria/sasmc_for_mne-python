@@ -13,6 +13,7 @@ import scipy.spatial.distance as ssd
 import copy
 import time
 import itertools
+from mne.cov import compute_whitener
 import mne
 from mayavi import mlab
 
@@ -715,7 +716,7 @@ class Sesame(object):
     """
 
     def __init__(self, forward, evoked, s_noise, radius=None, sigma_neigh=None, n_parts=100, sample_min=None,
-                 sample_max=None, subsample=None, s_q=None, lam=0.25, N_dip_max=10, verbose=False):
+                 sample_max=None, subsample=None, s_q=None, cov=None, lam=0.25, N_dip_max=10, verbose=False):
 
         # 1) Choosen by the user
         self.n_parts = n_parts
@@ -774,6 +775,13 @@ class Sesame(object):
             data = evoked.data[:, self.s_min:self.s_max + 1:subsample]
         else:
             data = evoked.data[:, self.s_min:self.s_max+1]
+
+        # Perform whitening if a noise covariance is provided
+        if cov is not None:
+            whitener, _ = compute_whitener(cov, info=evoked.info, pca=True,
+                                           picks=evoked.info['ch_names'])
+            data = np.sqrt(evoked.nave) * np.dot(whitener, data)
+            self.lead_field = np.sqrt(evoked.nave) * np.dot(whitener, self.lead_field)
 
         self.r_data = data.real
         self.i_data = data.imag

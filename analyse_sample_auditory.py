@@ -15,7 +15,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from mne.datasets import sample
-from mne import read_forward_solution, pick_types_forward, read_evokeds
+from mne import (read_forward_solution, pick_types_forward, read_evokeds,
+                 read_cov)
 from mne import Dipole as mneDipole
 from mne.label import _n_colors
 
@@ -23,11 +24,13 @@ from sasmc import Sesame  # , estimate_noise_std
 from mayavi import mlab
 
 data_path = sample.data_path()
-fname_fwd = op.join(data_path, 'MEG', 'sample',
-                    'sample_audvis-meg-eeg-oct-6-fwd.fif')
-fname_evoked = op.join(data_path, 'MEG', 'sample', 'sample_audvis-ave.fif')
 subject = 'sample'
 subjects_dir = op.join(data_path, 'subjects')
+fname_fwd = op.join(data_path, 'MEG', subject,
+                    'sample_audvis-meg-eeg-oct-6-fwd.fif')
+fname_evoked = op.join(data_path, 'MEG', subject, 'sample_audvis-ave.fif')
+fname_cov = op.join(sample.data_path(), 'MEG', subject,
+                             'sample_audvis-cov.fif')
 
 ###############################################################################
 # Load fwd model and evoked data
@@ -43,12 +46,17 @@ evoked = read_evokeds(fname_evoked, condition=condition, baseline=(None, 0))
 evoked = evoked.pick_types(meg=meg_sensor_type, eeg=False, exclude='bads')
 # TODO: there should be some check of consistency with fwd
 
+# Noise covariance (if provided data will be pre-whitened)
+cov = read_cov(fname_cov)
+
 ###############################################################################
 # Define SASMC parameters
 
 # Time window
 time_in = 0.055
 time_fin = 0.135
+# time_in = 0.02
+# time_fin = 0.14
 subsample = None
 sample_min, sample_max = evoked.time_as_index([time_in, time_fin],
                                               use_rounding=True)
@@ -62,9 +70,15 @@ plt.show()
 # (Alberto's Trick)
 data = evoked.data[:, sample_min:sample_max+1]
 sigma_q = 15 * np.max(abs(data)) / np.max(abs(fwd['sol']['data']))
+# sigma_q = 5 * np.max(abs(data)) / np.max(abs(fwd['sol']['data']))
 # sigma_q = None
 # sigma_q = 4.08e-08
+from mne.cov import compute_whitener
+whitener, _ = compute_whitener(cov, info=evoked.info, pca=True,
+                               picks=evoked.info['ch_names'])
+data = np.sqrt(evoked.nave) * np.dot(whitener, data)
 sigma_noise = 0.2 * np.max(abs(data))
+# TODO: per sigma_noise ho bisogno del dato bianco :(
 # sigma_noise = estimate_noise_std(evoked.data, 0, 100)
 # sigma_noise = 3.2e-12
 print('    Sigma noise: {0}'.format(sigma_noise))
@@ -73,9 +87,9 @@ print('    Sigma q: {0}'.format(sigma_q))
 ###############################################################################
 # Run SASMC
 # TODO: print inside our functions should be more 'understandable'
-_sesame = Sesame(fwd, evoked, n_parts=10, s_noise=sigma_noise,
+_sesame = Sesame(fwd, evoked, n_parts=100, s_noise=sigma_noise,
                sample_min=sample_min, sample_max=sample_max,
-               s_q=sigma_q, subsample=subsample, verbose=False)
+               s_q=sigma_q, cov=cov, subsample=subsample, verbose=True)
 _sesame.apply_sesame()
 
 print('    Estimated number of sources: {0}'.format(_sesame.est_n_dips[-1]))
