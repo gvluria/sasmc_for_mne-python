@@ -14,6 +14,7 @@ import copy
 import time
 import itertools
 from mne.cov import compute_whitener
+from mne.forward import _select_orient_forward
 import mne
 from mayavi import mlab
 
@@ -723,8 +724,9 @@ class Sesame(object):
         self.lam = lam
         self.N_dip_max = N_dip_max
         self.verbose = verbose
+        self.forward, _info_picked = _select_orient_forward(forward, evoked.info, cov)
 
-        self.forward = forward
+
         self.source_space = forward['source_rr']
         self.n_verts = self.source_space.shape[0]
         self.lead_field = forward['sol']['data']
@@ -777,8 +779,8 @@ class Sesame(object):
 
         # Perform whitening if a noise covariance is provided
         if cov is not None:
-            whitener, _ = compute_whitener(cov, info=evoked.info, pca=True,
-                                           picks=evoked.info['ch_names'])
+            whitener, _ = compute_whitener(cov, info=_info_picked, pca=True,
+                                           picks=_info_picked['ch_names'])
             data = np.sqrt(evoked.nave) * np.dot(whitener, data)
             self.lead_field = np.sqrt(evoked.nave) * np.dot(whitener, self.lead_field)
 
