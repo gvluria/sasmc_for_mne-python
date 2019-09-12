@@ -1,12 +1,13 @@
 """
-============================
-Compute SASMC on evoked data
-============================
+=============================
+Compute SESAME on evoked data
+=============================
 
-Compute and visualize SASMC solution on the auditory sample dataset.
+Compute and visualize SESAME solution on the auditory sample dataset.
 """
 # Authors: Gianvittorio Luria <luria@dima.unige.it>
 #          Sara Sommariva <sommariva@dima.unige.it>
+#          Albero Sorrentino <sorrentino@dima.unige.it>
 #
 # License: BSD (3-clause)
 
@@ -35,19 +36,21 @@ fname_cov = op.join(sample.data_path(), 'MEG', subject,
 ###############################################################################
 # Load fwd model and evoked data
 meg_sensor_type = True  # All meg sensors will be included
+eeg_sensor_type = False
 
 # Fwd model
 fwd = read_forward_solution(fname_fwd, exclude='bads')
-fwd = pick_types_forward(fwd, meg=meg_sensor_type, eeg=False, ref_meg=False)
+fwd = pick_types_forward(fwd, meg=meg_sensor_type, eeg=eeg_sensor_type, ref_meg=False)
 
 # Evoked Data
 condition = 'Left Auditory'
 evoked = read_evokeds(fname_evoked, condition=condition, baseline=(None, 0))
-evoked = evoked.pick_types(meg=meg_sensor_type, eeg=False, exclude='bads')
+evoked = evoked.pick_types(meg=meg_sensor_type, eeg=eeg_sensor_type, exclude='bads')
 # TODO: there should be some check of consistency with fwd
 
 # Noise covariance (if provided data will be pre-whitened)
-cov = read_cov(fname_cov)
+cov = None
+#cov = read_cov(fname_cov)
 
 ###############################################################################
 # Define SASMC parameters
@@ -55,8 +58,6 @@ cov = read_cov(fname_cov)
 # Time window
 time_in = 0.055
 time_fin = 0.135
-# time_in = 0.02
-# time_fin = 0.14
 subsample = None
 sample_min, sample_max = evoked.time_as_index([time_in, time_fin],
                                               use_rounding=True)
@@ -66,30 +67,17 @@ for ax in fig.get_axes():
     ax.axvline(time_fin, color='r', linewidth=2.0)
 plt.show()
 
-# Standard deviation of dipole-moment prior and noise distribution
-# (Alberto's Trick)
-data = evoked.data[:, sample_min:sample_max+1]
-sigma_q = 15 * np.max(abs(data)) / np.max(abs(fwd['sol']['data']))
-# sigma_q = 5 * np.max(abs(data)) / np.max(abs(fwd['sol']['data']))
-# sigma_q = None
-# sigma_q = 4.08e-08
-from mne.cov import compute_whitener
-whitener, _ = compute_whitener(cov, info=evoked.info, pca=True,
-                               picks=evoked.info['ch_names'])
-data = np.sqrt(evoked.nave) * np.dot(whitener, data)
-sigma_noise = 0.2 * np.max(abs(data))
-# TODO: per sigma_noise ho bisogno del dato bianco :(
-# sigma_noise = estimate_noise_std(evoked.data, 0, 100)
-# sigma_noise = 3.2e-12
-print('    Sigma noise: {0}'.format(sigma_noise))
-print('    Sigma q: {0}'.format(sigma_q))
 
 ###############################################################################
-# Run SASMC
-# TODO: print inside our functions should be more 'understandable'
-_sesame = Sesame(fwd, evoked, n_parts=100, s_noise=sigma_noise,
+# Run SESAME
+n_parts = 100
+# If None, sigma_noise and sigma_q will be estimated by the algorithm.
+sigma_noise = None
+sigma_q = None
+
+_sesame = Sesame(fwd, evoked, n_parts=n_parts, s_noise=sigma_noise,
                sample_min=sample_min, sample_max=sample_max,
-               s_q=sigma_q, cov=cov, subsample=subsample, verbose=True)
+               s_q=sigma_q, cov=cov, subsample=subsample, verbose=False)
 _sesame.apply_sesame()
 
 print('    Estimated number of sources: {0}'.format(_sesame.est_n_dips[-1]))
@@ -106,10 +94,10 @@ amplitude = np.array([np.linalg.norm(_sesame.est_q[:, i_d:3 * (i_d + 1)],
 colors = _n_colors(est_n_dips)
 plt.figure()
 for idx, amp in enumerate(amplitude):
-    plt.plot(times, amp, color=colors[idx], linewidth=2)
-plt.title('Source time-courses')
+    plt.plot(times, 1e9*amp, color=colors[idx], linewidth=2)
+plt.xlabel('Time (s)')
+plt.ylabel('Source amplitude (nAm)')
 plt.show()
-# TODO: add (i) x/y labels (ii) title
 
 ###############################################################################
 # Visualize intensity measure and estimated source locations on inflated brain
@@ -126,13 +114,6 @@ for idx, loc in enumerate(est_locs):
        brain.add_foci(stc.vertices[1][loc-nv_lh], coords_as_verts=True,
                       hemi='rh', color=colors[idx], scale_factor=0.3)
 mlab.show()
-
-# clim = dict(kind='value', lims=[1e-4, 1e-1, 1])
-#
-# brain_lh = _sasmc.plot_itensity_measure(subject,  subjects_dir=subjects_dir, hemi='lh', clim=clim)
-# brain_rh = _sasmc.plot_itensity_measure(subject,  subjects_dir=subjects_dir, hemi='rh', clim=clim)
-
-#plt.show()
 
 ###############################################################################
 # Da qui in poi materiale da riguardare (eventualmente da eliminare)
@@ -171,12 +152,3 @@ plt.show()
 # # TODO: How is related the time interval in dipole-fitting tutorial with N100????
 # mlab.show()
 # Motivation for control on integer
-print('    Type ist_in = {}'.format(type(sample_min)))
-print('    Compare with np.int_ = {}'.format(isinstance(sample_min, np.int_)))
-print('    Compare with np.integer = {}'.format(isinstance(sample_min, np.integer)))
-if isinstance(sample_min, np.int64):
-    aux_type = np.int32
-else:
-    aux_type = np.int64
-print('    Compare with np.int_ part ii = {}'.format(isinstance(sample_min.astype(aux_type), np.int_)))
-print('    Compare with np.integer part ii = {}'.format(isinstance(sample_min.astype(aux_type), np.integer)))
