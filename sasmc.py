@@ -728,7 +728,6 @@ class Sesame(object):
         self.source_space = forward['source_rr']
         self.n_verts = self.source_space.shape[0]
         self.lead_field = forward['sol']['data']
-        self.s_noise = s_noise
 
         self.distance_matrix = ssd.cdist(self.source_space, self.source_space)
         if radius is None:
@@ -794,6 +793,14 @@ class Sesame(object):
             print(' Estimated dipole strength variance: {:.4e}'.format(self.s_q))
         else:
             self.s_q = s_q
+
+        if s_noise is None:
+            print('Estimating noise variance...')
+            self.s_noise = self.estimate_s_noise()
+            print('[done]')
+            print(' Estimated noise variance: {:.4e}'.format(self.s_noise))
+        else:
+            self.s_noise = s_noise
 
         self._resample_it = list()
         self.est_n_dips = list()
@@ -991,11 +998,16 @@ class Sesame(object):
         return neigh_p
 
     def estimate_s_q(self):
-        dipoles_single_max = \
-            np.array([np.max(np.absolute(self.lead_field[:, 3 * c:3 * c + 3]))
-                      for c in range(self.source_space.shape[0])])
-        s_q = np.amax(np.absolute(self.r_data)) / np.mean(dipoles_single_max)
+
+        s_q = 15 * np.max(abs(self.r_data)) / np.max(abs(self.lead_field))
+
         return s_q
+
+    def estimate_s_noise(self):
+
+        s_noise = 0.2 * np.max(abs(self.r_data))
+
+        return s_noise
 
     def compute_q(self, est_locs):
         """Point-estimation of the dipole moment
