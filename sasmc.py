@@ -2,6 +2,7 @@
 
 # Authors: Gianvittorio Luria <luria@dima.unige.it>
 #          Sara Sommariva <sommariva@dima.unige.it>
+#          Alberto Sorrentino <sorrentino@dima.unige.it>
 #
 # License: BSD (3-clause)
 
