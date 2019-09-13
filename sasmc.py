@@ -18,6 +18,7 @@ from mne.forward import _select_orient_forward
 import mne
 from mayavi import mlab
 
+
 def estimate_noise_std(evoked, sample_min=None, sample_max=None, picks=None):
     '''Estimate the standard deviation of the noise distribution from a
     portion of the data which is assumed to be generated from noise only.
@@ -41,7 +42,8 @@ def estimate_noise_std(evoked, sample_min=None, sample_max=None, picks=None):
         Estimated noise standard deviation
     '''
 
-    # TODO: gestire meglio i picks (consentire una scrittura tipo picks = 'grad')
+    # TODO: gestire meglio i picks
+    # (consentire una scrittura tipo picks = 'grad')
 
     _data = evoked.data
 
@@ -70,7 +72,8 @@ class Dipole(object):
         s = 'location : {0}'.format(self.loc)
         return '<Dipole  |  {0}>'.format(s)
 
-    # TODO: decidere se aggiungere momento di dipolo e (forse) coordinate del vertice
+    # TODO: decidere se aggiungere momento di dipolo 
+    # e (forse) coordinate del vertice
 
 
 class Particle(object):
@@ -214,8 +217,9 @@ class Particle(object):
             (lam**self.n_dips)
         return self.prior
 
-    def evol_n_dips(self, n_verts, r_data, lead_field, N_dip_max, lklh_exp, s_noise,
-                    sigma_q, lam, q_birth=1 / 3, q_death=1 / 20):
+    def evol_n_dips(self, n_verts, r_data, lead_field, N_dip_max,
+                    lklh_exp, s_noise, sigma_q, lam, q_birth=1 / 3,
+                    q_death=1 / 20):
         """Perform a Reversible Jump Markov Chain Monte Carlo step in order
            to explore the "number of sources" component of the state space.
            Recall that we are working in a variable dimension model.
@@ -254,7 +258,8 @@ class Particle(object):
         birth_death = np.random.uniform(1e-16, 1)
 
         if self.loglikelihood_unit is None:
-            self.compute_loglikelihood_unit(r_data, lead_field, s_noise, sigma_q)
+            self.compute_loglikelihood_unit(r_data, lead_field,
+                                            s_noise, sigma_q)
 
         if birth_death < q_birth and prop_part.n_dips < N_dip_max:
             prop_part.add_dipole(n_verts)
@@ -265,7 +270,8 @@ class Particle(object):
         # Compute alpha rjmcmc
         if prop_part.n_dips != self.n_dips:
             prop_part.compute_prior(lam)
-            prop_part.compute_loglikelihood_unit(r_data, lead_field, s_noise, sigma_q)
+            prop_part.compute_loglikelihood_unit(r_data, lead_field,
+                                                 s_noise, sigma_q)
             log_prod_like = prop_part.loglikelihood_unit - self.loglikelihood_unit
 
             if prop_part.n_dips > self.n_dips:
@@ -279,7 +285,8 @@ class Particle(object):
                 self = copy.deepcopy(prop_part)
         return self
 
-    def evol_loc(self, dip_idx, neigh, neigh_p, r_data, lead_field, lklh_exp, s_noise, sigma_q, lam):
+    def evol_loc(self, dip_idx, neigh, neigh_p, r_data, lead_field,
+                 lklh_exp, s_noise, sigma_q, lam):
         """Perform a Markov Chain Monte Carlo step in order to explore the
            dipole location component of the state space. The dipole is
            allowed to move only to a restricted set of brain points,
@@ -316,7 +323,8 @@ class Particle(object):
         """
         # Step 1: Drawn of the new location.
         prop_part = copy.deepcopy(self)
-        p_part = np.cumsum(neigh_p[prop_part.dipoles[dip_idx].loc, np.where(neigh[prop_part.dipoles[dip_idx].loc] != -1)])
+        p_part = np.cumsum(neigh_p[prop_part.dipoles[dip_idx].loc,
+                           np.where(neigh[prop_part.dipoles[dip_idx].loc] != -1)])
         new_pos = False
 
         while new_pos is False:
@@ -339,10 +347,12 @@ class Particle(object):
 
         # Compute alpha mcmc
         prop_part.compute_prior(lam)
-        prop_part.compute_loglikelihood_unit(r_data, lead_field, s_noise, sigma_q)
+        prop_part.compute_loglikelihood_unit(r_data, lead_field,
+                                             s_noise, sigma_q)
 
         if self.loglikelihood_unit is None:
-            self.compute_loglikelihood_unit(r_data, lead_field, s_noise, sigma_q)
+            self.compute_loglikelihood_unit(r_data, lead_field,
+                                            s_noise, sigma_q)
 
         log_prod_like = prop_part.loglikelihood_unit - self.loglikelihood_unit
         alpha = np.amin([1, (comp_fact_delta_r *
@@ -410,11 +420,12 @@ class EmpPdf(object):
                                                                                            _part.nu, _part)
         return s
 
-    def sample(self, n_verts, r_data, lead_field, neigh, neigh_p, s_noise, sigma_q, lam, N_dip_max):
+    def sample(self, n_verts, r_data, lead_field, neigh, neigh_p,
+               s_noise, sigma_q, lam, N_dip_max):
         """Perform a full evolution step of the whole empirical pdf.
         This is done by calling the evol_n_dips method on each particle
-        forming the empirical pdf and calling the evol_loc method on each dipole of
-        each particle forming the empirical pdf.
+        forming the empirical pdf and calling the evol_loc method on
+        each dipole of each particle forming the empirical pdf.
 
         Parameters
         ----------
@@ -442,9 +453,12 @@ class EmpPdf(object):
         """
 
         for i_part, _part in enumerate(self.particles):
-            _part = _part.evol_n_dips(n_verts, r_data, lead_field, N_dip_max, self.exponents[-1], s_noise, sigma_q, lam)
+            _part = _part.evol_n_dips(n_verts, r_data, lead_field, N_dip_max,
+                                      self.exponents[-1], s_noise, sigma_q,
+                                      lam)
             for dip_idx in reversed(range(_part.n_dips)):
-                _part = _part.evol_loc(dip_idx, neigh, neigh_p, r_data, lead_field, self.exponents[-1], s_noise,
+                _part = _part.evol_loc(dip_idx, neigh, neigh_p, r_data,
+                                       lead_field, self.exponents[-1], s_noise,
                                        sigma_q, lam)
             self.particles[i_part] = _part
             # TODO: more clever way?
@@ -475,7 +489,8 @@ class EmpPdf(object):
         self.logweights[:] = np.log(1. / self.logweights.shape[0])
         self.ESS = self.logweights.shape[0]
 
-    def compute_exponent(self, s_noise, gamma_high = 0.99, gamma_low = 0.9, delta_min = 1e-05, delta_max = 0.1):
+    def compute_exponent(self, s_noise, gamma_high=0.99, gamma_low=0.9,
+                         delta_min=1e-05, delta_max=0.1):
         """The choice for the sequence of artificial distributions  consists
         in starting from the prior distribution and moving towards the
         posterior by increasing the exponent of the likelihood function with
@@ -716,8 +731,9 @@ class Sesame(object):
         and || || is the Frobenius norm.
     """
 
-    def __init__(self, forward, evoked, s_noise, radius=None, sigma_neigh=None, n_parts=100, sample_min=None,
-                 sample_max=None, subsample=None, s_q=None, cov=None, lam=0.25, N_dip_max=10, verbose=False):
+    def __init__(self, forward, evoked, s_noise, radius=None, sigma_neigh=None,
+                 n_parts=100, sample_min=None, sample_max=None, subsample=None,
+                 s_q=None, cov=None, lam=0.25, N_dip_max=10, verbose=False):
 
         # 1) Choosen by the user
         self.n_parts = n_parts
@@ -725,7 +741,6 @@ class Sesame(object):
         self.N_dip_max = N_dip_max
         self.verbose = verbose
         self.forward, _info_picked = _select_orient_forward(forward, evoked.info, cov)
-
 
         self.source_space = forward['source_rr']
         self.n_verts = self.source_space.shape[0]
@@ -812,10 +827,12 @@ class Sesame(object):
         self.blob = list()
         self.SW_pv = list()
 
-        self.emp = EmpPdf(self.n_parts, self.n_verts, self.lam, verbose=self.verbose)
+        self.emp = EmpPdf(self.n_parts, self.n_verts,
+                          self.lam, verbose=self.verbose)
 
         for _part in self.emp.particles:
-            _part.compute_loglikelihood_unit(self.r_data, self.lead_field, self.s_noise, self.s_q)
+            _part.compute_loglikelihood_unit(self.r_data, self.lead_field,
+                                             self.s_noise, self.s_q)
 
     def apply_sesame(self, estimate_q=True):
         """Run the SASMC sampler algorithm and performs point estimation at
@@ -870,8 +887,9 @@ class Sesame(object):
                     print('ESS = {:.2%}'.format(self.emp.ESS/self.n_parts))
 
             # STEP 2: Sampling.
-            self.emp.sample(self.n_verts, self.r_data, self.lead_field, self.neigh,
-                            self.neigh_p, self.s_noise, self.s_q, self.lam, self.N_dip_max)
+            self.emp.sample(self.n_verts, self.r_data, self.lead_field,
+                            self.neigh, self.neigh_p, self.s_noise,
+                            self.s_q, self.lam, self.N_dip_max)
 
             # STEP 3: Point Estimation
             # self.emp.point_estimate(D, self.N_dip_max)
@@ -938,19 +956,20 @@ class Sesame(object):
             # Check the number of neighbours
             if n_neigh[-1] < n_min:
                 raise ValueError('Computation of neighbours aborted since '
-                                 'their minimum number is definitely too small.\n'
+                                 'their minimum number is too small.\n'
                                  'Please choose a higher radius.')
             elif n_neigh[-1] > n_max:
                 raise ValueError('Computation of neighbours aborted since'
-                                 'their maximum number is definitely too big.\n'
+                                 'their maximum number is too big.\n'
                                  'Please choose a lower radius.')
             list_neigh.append(aux)
-            reached_points = np.append(reached_points, aux[~np.in1d(aux, reached_points)])
+            reached_points = np.append(reached_points,
+                                       aux[~np.in1d(aux, reached_points)])
             counter += 1
 
         if counter >= reached_points.shape[0]:
-            raise ValueError('Too small value of the radius: the neighbour-matrix'
-                             'is not connected')
+            raise ValueError('Too small value of the radius:'
+                             'the neighbour-matrix is not connected')
         elif self.source_space.shape[0] == reached_points.shape[0]:
             while counter < self.source_space.shape[0]:
                 P = reached_points[counter]
@@ -960,11 +979,11 @@ class Sesame(object):
 
                 if n_neigh[-1] < n_min:
                     raise ValueError('Computation of neighbours aborted since '
-                                     'their minimum number is definitely too small.\n'
+                                     'their minimum number is too small.\n'
                                      'Please choose a higher radius.')
                 elif n_neigh[-1] > n_max:
                     raise ValueError('Computation of neighbours aborted since'
-                                     'their maximum number is definitely too big.\n'
+                                     'their maximum number is too big.\n'
                                      'Please choose a lower radius.')
 
                 list_neigh.append(aux)
@@ -972,14 +991,15 @@ class Sesame(object):
 
             n_neigh_max = max(n_neigh)
 
-            #n_neigh_min = min(n_neigh)
-            #n_neigh_mean = sum(n_neigh) / len(n_neigh)
-            #print('***** Tested radius = ' + str(radius) + ' *****')
-            #print('Maximum number of neighbours: ' + str(n_neigh_max))
-            #print('Minimum number of neighbours: ' + str(n_neigh_min))
-            #print('Average number of neighbours: ' + str(n_neigh_mean))
+            # n_neigh_min = min(n_neigh)
+            # n_neigh_mean = sum(n_neigh) / len(n_neigh)
+            # print('***** Tested radius = ' + str(radius) + ' *****')
+            # print('Maximum number of neighbours: ' + str(n_neigh_max))
+            # print('Minimum number of neighbours: ' + str(n_neigh_min))
+            # print('Average number of neighbours: ' + str(n_neigh_mean))
 
-            neigh = np.zeros([self.source_space.shape[0], n_neigh_max], dtype=int) - 1
+            neigh = np.zeros([self.source_space.shape[0],
+                              n_neigh_max], dtype=int) - 1
             for i in range(self.source_space.shape[0]):
                 neigh[i, 0:list_neigh[i].shape[0]] = list_neigh[i]
             index_ord = np.argsort(neigh[:, 0])
@@ -1028,7 +1048,7 @@ class Sesame(object):
         sigma = (self.s_q / self.s_noise)**2 * np.dot(Gc, np.transpose(Gc)) +\
             np.eye(n_sens)
         kal_mat = (self.s_q / self.s_noise)**2 * np.dot(np.transpose(Gc),
-                                                       np.linalg.inv(sigma))
+                                                        np.linalg.inv(sigma))
         self.est_q = np.array([np.dot(kal_mat, self.r_data[:, t])
                               for t in range(n_time)])
 
@@ -1093,8 +1113,9 @@ class Sesame(object):
         return stc
 
     @mlab.show
-    def plot_itensity_measure(self, subject, subjects_dir, estimated_loc=True, surface='inflated', hemi='split',
-                              views='lat', clim='auto'):
+    def plot_itensity_measure(self, subject, subjects_dir, estimated_loc=True,
+                              surface='inflated', hemi='split', views='lat',
+                              clim='auto'):
         # TODO: Does it work also when we have multiple iterations?
         # TODO some default value for subject/subject_dir?
         # TODO some text in time-label?
@@ -1104,19 +1125,22 @@ class Sesame(object):
         # TODO: --> when hemi = 'split' problem in keeping the figure.
 
         stc = self.to_stc(subject)
-        brain = stc.plot(subject, surface=surface, hemi=hemi, time_label=' ', subjects_dir=subjects_dir, views=views,
-                         clim=clim)
+        brain = stc.plot(subject, surface=surface, hemi=hemi,
+                         time_label=' ', subjects_dir=subjects_dir,
+                         views=views, clim=clim)
         if estimated_loc:
             est_locs = self.est_locs[-1]
             nv_lh = stc.vertices[0].shape[0]
             est_locs_lh = est_locs[np.where(est_locs < nv_lh)[0]]
             est_locs_rh = est_locs[np.where(est_locs >= nv_lh)[0]] - nv_lh
             if (hemi is not 'rh') and (est_locs_lh.size != 0):
-                brain.add_foci(stc.vertices[0][est_locs_lh], coords_as_verts=True,
-                               hemi='lh', color='blue', scale_factor=0.3)
+                brain.add_foci(stc.vertices[0][est_locs_lh],
+                               coords_as_verts=True, hemi='lh',
+                               color='blue', scale_factor=0.3)
             if (hemi is not 'lh') and (est_locs_rh.size != 0):
-                brain.add_foci(stc.vertices[1][est_locs_rh], coords_as_verts=True,
-                           hemi='rh', color='blue', scale_factor=0.3)
+                brain.add_foci(stc.vertices[1][est_locs_rh],
+                               coords_as_verts=True, hemi='rh',
+                               color='blue', scale_factor=0.3)
         return brain
 
     def write_stc(self, file_name, fwd, tmin=1, tmax=None, subject=None):
@@ -1130,8 +1154,8 @@ class Sesame(object):
             file_name : str
                 Path and name of the file to be saved
             fwd : dict
-                Forward structure from which the lead-field matrix and the source
-                space were been extracted
+                Forward structure from which the lead-field
+                matrix and the source space have been extracted
             it_in and it_fin : int
                 First and last iteration to be saved
             subject : str
